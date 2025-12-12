@@ -3,16 +3,19 @@ const state = {
   scenarios: [],
   transactions: [],
   recurring: [],
-  cards: []
+  cards: [],
+  importMappings: []
 };
 
 let charts = {};
 const expandedCategories = new Set();
+let pendingCsv = { headers: [], rows: [] };
 
 function loadState() {
   const raw = localStorage.getItem(storageKey);
   if (raw) {
     Object.assign(state, JSON.parse(raw));
+    state.importMappings = state.importMappings || [];
   } else {
     seedData();
     persist();
@@ -95,6 +98,7 @@ function bindActions() {
   document.getElementById('includeTrend').addEventListener('change', renderCashGraph);
   document.getElementById('tableRange').addEventListener('change', renderCashTable);
   document.getElementById('tableGrouping').addEventListener('change', renderCashTable);
+  document.getElementById('statPeriod').addEventListener('change', renderStats);
   document.getElementById('addTransaction').addEventListener('click', promptTransaction);
   document.getElementById('parseCsv').addEventListener('click', parseCsvUpload);
   document.getElementById('openImport').addEventListener('click', openImportModal);
@@ -102,6 +106,10 @@ function bindActions() {
   document.getElementById('recurringForm').addEventListener('submit', saveRecurring);
   document.getElementById('refreshState').addEventListener('click', renderState);
   document.getElementById('addCard').addEventListener('click', promptCard);
+  document.getElementById('csvFile').addEventListener('change', handleCsvFile);
+  document.getElementById('loadPastedCsv').addEventListener('click', () => prepareCsvData(document.getElementById('csvInput').value));
+  document.getElementById('saveMapping').addEventListener('click', saveCurrentMapping);
+  document.getElementById('mappingSelect').addEventListener('change', loadSavedMapping);
 }
 
 function currentScenario() {
@@ -206,18 +214,49 @@ function calcTrendline(data) {
 
 function renderStats() {
   const scenarioId = currentScenario();
-  const txs = scenarioTransactions(scenarioId);
+  const periodSelect = document.getElementById('statPeriod');
+  const { start, end, label } = resolvePeriod(periodSelect?.value || 'this-month');
+  const txs = scenarioTransactions(scenarioId).filter(t => {
+    const d = parseDate(t.date);
+    return d >= start && d <= end;
+  });
   const income = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
   const expenses = txs.filter(t => t.type === 'expense').reduce((s, t) => s + Math.abs(t.amount), 0);
   const balanceNow = state.scenarios.find(s => s.id === scenarioId)?.startBalance + income - expenses;
   const statBar = document.getElementById('statBar');
+  const periodLabel = document.getElementById('statPeriodLabel');
   const negatives = findNegativeEvents(buildCashSeries(scenarioId, 60));
+  if (periodLabel) {
+    periodLabel.textContent = `${label}: ${start.toLocaleDateString()} → ${end.toLocaleDateString()}`;
+  }
   statBar.innerHTML = [
     { label: 'Income (period)', value: formatCurrency(income), note: 'Recorded inflows' },
     { label: 'Expenses (period)', value: formatCurrency(expenses), note: 'Recorded outflows' },
     { label: 'Current cash', value: formatCurrency(balanceNow || 0), note: 'Start + activity' },
     negatives.length ? { label: 'Alerts', value: `${negatives.length} risk`, note: `Next: ${negatives[0].date}` } : { label: 'Alerts', value: 'None', note: 'No negative cash' }
   ].map(stat => `<div class="stat"><div class="label">${stat.label}</div><div class="value">${stat.value}</div><div class="note">${stat.note}</div></div>`).join('');
+}
+
+function resolvePeriod(key) {
+  const now = new Date();
+  const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const nextMonthEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+  const quarter = Math.floor(now.getMonth() / 3);
+  const currentQuarterStart = new Date(now.getFullYear(), quarter * 3, 1);
+  const currentQuarterEnd = new Date(now.getFullYear(), quarter * 3 + 3, 0);
+  const nextQuarterStart = new Date(now.getFullYear(), quarter * 3 + 3, 1);
+  const nextQuarterEnd = new Date(now.getFullYear(), quarter * 3 + 6, 0);
+  if (key === 'next-month') return { start: nextMonthStart, end: nextMonthEnd, label: 'Next month' };
+  if (key === 'this-quarter') return { start: currentQuarterStart, end: currentQuarterEnd, label: 'This quarter' };
+  if (key === 'next-quarter') return { start: nextQuarterStart, end: nextQuarterEnd, label: 'Next quarter' };
+  if (key === 'last-30') {
+    const start = new Date(now);
+    start.setDate(now.getDate() - 29);
+    return { start, end: now, label: 'Last 30 days' };
+  }
+  return { start: currentMonthStart, end: currentMonthEnd, label: 'This month' };
 }
 
 function findNegativeEvents(series) {
@@ -417,7 +456,11 @@ function predictCardClose(card, closeDate) {
 
 function renderTransactions() {
   const tbody = document.querySelector('#transactionTable tbody');
-  tbody.innerHTML = state.transactions.map(t => `<tr><td>${t.date}</td><td>${t.vendor}</td><td>${t.category}</td><td>${t.subcategory || '-'}</td><td>${t.type}</td><td>${formatCurrency(t.amount)}</td><td>${state.scenarios.find(s => s.id === t.scenario)?.name || t.scenario}</td><td>${t.payment}</td></tr>`).join('');
+  tbody.innerHTML = state.transactions.map(t => {
+    const scenarioName = state.scenarios.find(s => s.id === t.scenario)?.name || t.scenario;
+    const source = t.dataSource || t.payment || 'checking';
+    return `<tr><td>${t.date}</td><td>${t.vendor}</td><td>${t.description || '-'}</td><td>${t.category}</td><td>${t.subcategory || '-'}</td><td>${t.type}</td><td>${formatCurrency(t.amount)}</td><td>${scenarioName}</td><td>${t.payment}</td><td>${source}</td></tr>`;
+  }).join('');
 }
 
 function renderRecurring() {
@@ -441,9 +484,11 @@ function promptTransaction() {
   const date = prompt('Date (YYYY-MM-DD)', new Date().toISOString().slice(0, 10));
   const category = detectCategoryFromVendor(vendor) || prompt('Category', 'Misc');
   const subcategory = prompt('Sub-category', 'General');
+  const description = prompt('Description', '') || '';
   const type = amount >= 0 ? 'income' : 'expense';
   const payment = prompt('Payment method', 'checking');
-  state.transactions.push({ id: crypto.randomUUID(), date, vendor, amount, type, category, subcategory, scenario: scenarioId, payment });
+  const dataSource = prompt('Data source (Card, Cash Account, etc)', payment) || payment;
+  state.transactions.push({ id: crypto.randomUUID(), date, vendor, amount, type, category, subcategory, scenario: scenarioId, payment, description, dataSource });
   persist();
   renderAll();
 }
@@ -462,17 +507,154 @@ function detectCategoryFromVendor(vendor) {
   return null;
 }
 
+const importTargets = [
+  { key: 'date', label: 'Date' },
+  { key: 'vendor', label: 'Vendor' },
+  { key: 'amount', label: 'Amount' },
+  { key: 'type', label: 'Type' },
+  { key: 'category', label: 'Category' },
+  { key: 'subcategory', label: 'Sub-Category' },
+  { key: 'description', label: 'Description' },
+  { key: 'scenario', label: 'Scenario' },
+  { key: 'payment', label: 'Payment' },
+  { key: 'dataSource', label: 'Data Source' }
+];
+
+function handleCsvFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = evt => prepareCsvData(evt.target.result);
+  reader.readAsText(file);
+}
+
+function prepareCsvData(text) {
+  const parsed = parseCsvText(text);
+  if (!parsed.headers.length) return;
+  pendingCsv = parsed;
+  renderMappingControls(parsed.headers);
+  document.getElementById('csvInput').value = text.trim();
+}
+
+function parseCsvText(text) {
+  const lines = text.split(/\n+/).map(l => l.trim()).filter(Boolean);
+  if (!lines.length) return { headers: [], rows: [] };
+  const headers = parseCsvLine(lines[0]);
+  const rows = lines.slice(1).map(line => parseCsvLine(line)).map(cols => {
+    const row = {};
+    headers.forEach((h, i) => { row[h] = cols[i] || ''; });
+    return row;
+  });
+  return { headers, rows };
+}
+
+function parseCsvLine(line) {
+  const cells = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"' && line[i + 1] === '"') { current += '"'; i++; continue; }
+      if (ch === '"') { inQuotes = false; continue; }
+      current += ch;
+    } else {
+      if (ch === '"') { inQuotes = true; continue; }
+      if (ch === ',') { cells.push(current); current = ''; continue; }
+      current += ch;
+    }
+  }
+  cells.push(current);
+  return cells;
+}
+
+function renderMappingControls(headers) {
+  const container = document.getElementById('mappingContainer');
+  container.innerHTML = headers.map(h => {
+    const guess = guessMapping(h);
+    const options = ['ignore', ...importTargets.map(t => t.key)].map(opt => {
+      const label = opt === 'ignore' ? 'Ignore' : importTargets.find(t => t.key === opt)?.label;
+      const selected = guess === opt ? 'selected' : '';
+      return `<option value="${opt}" ${selected}>${label}</option>`;
+    }).join('');
+    return `<label>${h}<select data-header="${h}">${options}</select></label>`;
+  }).join('');
+  populateMappingSelect();
+}
+
+function guessMapping(header) {
+  const normalized = header.toLowerCase();
+  const found = importTargets.find(t => normalized.includes(t.key.toLowerCase()) || normalized.includes(t.label.toLowerCase()));
+  return found?.key || 'ignore';
+}
+
+function gatherMapping() {
+  const mapping = {};
+  document.querySelectorAll('#mappingContainer select').forEach(sel => {
+    mapping[sel.dataset.header] = sel.value;
+  });
+  return mapping;
+}
+
 function parseCsvUpload() {
-  const rows = document.getElementById('csvInput').value.trim().split(/\n+/);
-  rows.forEach(line => {
-    const [date, vendor, amount, type, category, subcategory, scenario, payment] = line.split(',');
-    if (!date || !vendor || !amount) return;
-    state.transactions.push({ id: crypto.randomUUID(), date, vendor, amount: Number(amount), type: type || (Number(amount) >= 0 ? 'income' : 'expense'), category: category || detectCategoryFromVendor(vendor) || 'Uncategorised', subcategory, scenario: scenario || currentScenario(), payment: payment || 'checking' });
+  const mapping = gatherMapping();
+  const required = ['date', 'vendor', 'amount'];
+  const selectedTargets = Object.values(mapping);
+  if (!required.every(req => selectedTargets.includes(req))) {
+    alert('Please map Date, Vendor, and Amount before importing.');
+    return;
+  }
+  if (!pendingCsv.rows.length) {
+    prepareCsvData(document.getElementById('csvInput').value);
+  }
+  if (!pendingCsv.rows.length) return;
+  pendingCsv.rows.forEach(row => {
+    const payload = { id: crypto.randomUUID(), scenario: currentScenario(), type: '', category: 'Uncategorised', payment: 'checking', description: '', dataSource: '' };
+    Object.entries(mapping).forEach(([header, target]) => {
+      if (target === 'ignore') return;
+      payload[target] = row[header] || '';
+    });
+    if (!payload.date || !payload.vendor || !payload.amount) return;
+    payload.amount = Number(payload.amount);
+    payload.type = payload.type || (payload.amount >= 0 ? 'income' : 'expense');
+    if (!payload.type) payload.type = payload.amount >= 0 ? 'income' : 'expense';
+    if (!payload.category) payload.category = detectCategoryFromVendor(payload.vendor) || 'Uncategorised';
+    if (!payload.scenario) payload.scenario = currentScenario();
+    if (!payload.payment) payload.payment = 'checking';
+    if (!payload.dataSource) payload.dataSource = payload.payment;
+    state.transactions.push(payload);
   });
   persist();
   renderAll();
   document.getElementById('csvInput').value = '';
+  pendingCsv = { headers: [], rows: [] };
   closeImportModal();
+}
+
+function saveCurrentMapping() {
+  const name = document.getElementById('mappingName').value.trim();
+  if (!name) { alert('Mapping name is required'); return; }
+  const mapping = gatherMapping();
+  const record = { id: crypto.randomUUID(), name, mapping };
+  const existingIndex = state.importMappings.findIndex(m => m.name === name);
+  if (existingIndex >= 0) state.importMappings[existingIndex] = record; else state.importMappings.push(record);
+  persist();
+  populateMappingSelect(name);
+}
+
+function populateMappingSelect(selectedName) {
+  const select = document.getElementById('mappingSelect');
+  select.innerHTML = '<option value="">Load mapping</option>' + state.importMappings.map(m => `<option value="${m.id}" ${m.name === selectedName ? 'selected' : ''}>${m.name}</option>`).join('');
+}
+
+function loadSavedMapping() {
+  const id = document.getElementById('mappingSelect').value;
+  if (!id) return;
+  const mapping = state.importMappings.find(m => m.id === id)?.mapping;
+  if (!mapping) return;
+  document.querySelectorAll('#mappingContainer select').forEach(sel => {
+    sel.value = mapping[sel.dataset.header] || 'ignore';
+  });
 }
 
 function saveRecurring(e) {
@@ -517,6 +699,7 @@ function deleteRecurring(id) {
 
 function openImportModal() {
   const modal = document.getElementById('importModal');
+  populateMappingSelect();
   modal.classList.add('active');
   modal.setAttribute('aria-hidden', 'false');
 }

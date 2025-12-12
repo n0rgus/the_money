@@ -21,6 +21,17 @@
   </header>
 
   <section class="intro">
+    <div class="stat-controls">
+      <label for="statPeriod">Working period</label>
+      <select id="statPeriod">
+        <option value="this-month" selected>This month</option>
+        <option value="next-month">Next month</option>
+        <option value="this-quarter">This quarter</option>
+        <option value="next-quarter">Next quarter</option>
+        <option value="last-30">Last 30 days</option>
+      </select>
+      <span id="statPeriodLabel" class="muted"></span>
+    </div>
     <div class="stat-bar" id="statBar"></div>
   </section>
 
@@ -31,7 +42,7 @@
     <button class="tab-button" data-tab="cash-table">Cash Flow table</button>
     <button class="tab-button" data-tab="state">Current Financial State</button>
     <button class="tab-button" data-tab="recurring">Recurring and Ammortised</button>
-    <button class="tab-button" data-tab="data">Imported data review</button>
+    <button class="tab-button" data-tab="data">Transactions</button>
   </nav>
 
   <main>
@@ -156,7 +167,7 @@
         <div class="responsive-table">
           <table class="data-table" id="transactionTable">
             <thead>
-              <tr><th>Date</th><th>Vendor</th><th>Category</th><th>Sub</th><th>Type</th><th>Amount</th><th>Scenario</th><th>Payment</th></tr>
+              <tr><th>Date</th><th>Vendor</th><th>Description</th><th>Category</th><th>Sub-Category</th><th>Type</th><th>Amount</th><th>Scenario</th><th>Payment</th><th>Data Source</th></tr>
             </thead>
             <tbody></tbody>
           </table>
@@ -208,10 +219,29 @@
         <button id="closeImport" class="ghost">Close</button>
       </header>
       <div class="upload">
-        <label for="csvInput">Paste CSV rows</label>
-        <textarea id="csvInput" placeholder="date,vendor,amount,type,category,subcategory,scenario,payment"></textarea>
-        <button id="parseCsv">Add imported rows</button>
+        <label for="csvFile">Upload CSV file</label>
+        <input type="file" id="csvFile" accept=".csv,text/csv">
+        <label for="csvInput">Or paste CSV rows</label>
+        <textarea id="csvInput" placeholder="date,vendor,amount,type,category,subcategory,description,scenario,payment,data source"></textarea>
+        <div class="control-row">
+          <button id="loadPastedCsv" class="ghost">Load pasted rows</button>
+          <select id="mappingSelect"></select>
+        </div>
       </div>
+      <div class="mapping-grid">
+        <div>
+          <h4>Header mapping</h4>
+          <p class="muted">Match each column to a target field or choose Ignore.</p>
+          <div id="mappingContainer" class="mapping-container"></div>
+        </div>
+        <div class="mapping-actions">
+          <h4>Save mapping</h4>
+          <label>Mapping name<input id="mappingName" placeholder="My Bank"></label>
+          <button id="saveMapping">Save mapping</button>
+          <p class="muted">Saved mappings can be reloaded next time.</p>
+        </div>
+      </div>
+      <button id="parseCsv">Add imported rows</button>
     </div>
   </div>
 
