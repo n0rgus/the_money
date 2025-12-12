@@ -7,6 +7,7 @@ const state = {
 };
 
 let charts = {};
+const expandedCategories = new Set();
 
 function loadState() {
   const raw = localStorage.getItem(storageKey);
@@ -40,9 +41,9 @@ function seedData() {
   ];
 
   state.recurring = [
-    { id: crypto.randomUUID(), label: 'Rent', category: 'Housing', subcategory: 'Rent', amount: -1500, type: 'expense', cadence: 'monthly', start: '2024-05-01', end: null, scenario: 'baseline' },
-    { id: crypto.randomUUID(), label: 'Internet', category: 'Utilities', subcategory: 'Internet', amount: -75, type: 'expense', cadence: 'monthly', start: '2024-05-05', end: null, scenario: 'baseline' },
-    { id: crypto.randomUUID(), label: 'Freelance', category: 'Side Income', subcategory: 'Projects', amount: 600, type: 'income', cadence: 'monthly', start: '2024-05-12', end: null, scenario: 'stretch' }
+    { id: crypto.randomUUID(), label: 'Rent', category: 'Housing', subcategory: 'Rent', amount: -1500, type: 'expense', cadence: 'monthly', start: '2024-05-01', end: null, scenario: 'baseline', need: 'required' },
+    { id: crypto.randomUUID(), label: 'Internet', category: 'Utilities', subcategory: 'Internet', amount: -75, type: 'expense', cadence: 'monthly', start: '2024-05-05', end: null, scenario: 'baseline', need: 'required' },
+    { id: crypto.randomUUID(), label: 'Freelance', category: 'Side Income', subcategory: 'Projects', amount: 600, type: 'income', cadence: 'monthly', start: '2024-05-12', end: null, scenario: 'stretch', need: 'discretionary' }
   ];
 
   state.cards = [
@@ -89,7 +90,6 @@ function bindActions() {
   document.getElementById('scenarioSelect').addEventListener('change', renderAll);
   document.getElementById('addScenarioBtn').addEventListener('click', promptScenario);
   document.getElementById('overviewRange').addEventListener('change', renderOverview);
-  document.getElementById('overviewPeriod').addEventListener('change', renderOverviewHotspots);
   document.getElementById('budgetPeriod').addEventListener('change', renderBudget);
   document.getElementById('cashRange').addEventListener('change', renderCashGraph);
   document.getElementById('includeTrend').addEventListener('change', renderCashGraph);
@@ -97,6 +97,8 @@ function bindActions() {
   document.getElementById('tableGrouping').addEventListener('change', renderCashTable);
   document.getElementById('addTransaction').addEventListener('click', promptTransaction);
   document.getElementById('parseCsv').addEventListener('click', parseCsvUpload);
+  document.getElementById('openImport').addEventListener('click', openImportModal);
+  document.getElementById('closeImport').addEventListener('click', closeImportModal);
   document.getElementById('recurringForm').addEventListener('submit', saveRecurring);
   document.getElementById('refreshState').addEventListener('click', renderState);
   document.getElementById('addCard').addEventListener('click', promptCard);
@@ -128,13 +130,13 @@ function promptScenario() {
 function renderAll() {
   renderStats();
   renderOverview();
-  renderOverviewHotspots();
   renderBudget();
   renderCashGraph();
   renderCashTable();
   renderState();
   renderCards();
   renderTransactions();
+  renderRecurring();
 }
 
 function scenarioTransactions(scenarioId) {
@@ -248,23 +250,6 @@ function renderOverview() {
   });
 }
 
-function renderOverviewHotspots() {
-  const scenarioId = currentScenario();
-  const period = document.getElementById('overviewPeriod').value;
-  const txs = scenarioTransactions(scenarioId).filter(t => t.type === 'expense');
-  const buckets = {};
-  txs.forEach(t => {
-    const key = t.category;
-    buckets[key] = (buckets[key] || 0) + Math.abs(t.amount);
-  });
-  const sorted = Object.entries(buckets).sort((a, b) => b[1] - a[1]).slice(0, 5);
-  const list = document.getElementById('hotspotList');
-  list.innerHTML = sorted.map(([cat, total]) => {
-    const note = `Avg ${period}: ${formatCurrency(total)}`;
-    return `<div class="simple-item"><div class="label">${cat}</div><div class="value">${formatCurrency(total)}</div><div class="note">${note}</div></div>`;
-  }).join('') || '<p class="hint">No expenses yet.</p>';
-}
-
 function renderBudget() {
   const scenarioId = currentScenario();
   const period = document.getElementById('budgetPeriod').value;
@@ -273,20 +258,23 @@ function renderBudget() {
   const tbody = document.querySelector('#budgetTable tbody');
   tbody.innerHTML = rows.map(row => {
     const variance = row.budget - row.actual;
-    return `<tr data-cat="${row.category}"><td>${row.category}</td><td>${row.type}</td><td>${formatCurrency(row.budget)}</td><td>${formatCurrency(row.actual)}</td><td>${formatCurrency(variance)}</td></tr>`;
+    let html = `<tr class="budget-parent" data-cat="${row.category}"><td>${row.category}</td><td>${row.type}</td><td>${formatCurrency(row.budget)}</td><td>${formatCurrency(row.actual)}</td><td>${formatCurrency(variance)}</td></tr>`;
+    if (expandedCategories.has(row.category)) {
+      const subs = subcategoryBreakdown(txs, row.category);
+      html += subs.map(sub => `<tr class="budget-child" data-parent="${row.category}"><td>${row.category} / ${sub.name}</td><td>${sub.type}</td><td>-</td><td>${formatCurrency(sub.total)}</td><td>-</td></tr>`).join('');
+    }
+    return html;
   }).join('');
-  tbody.querySelectorAll('tr').forEach(tr => tr.addEventListener('click', () => drillCategory(tr.dataset.cat, txs)));
+  tbody.querySelectorAll('.budget-parent').forEach(tr => tr.addEventListener('click', () => toggleCategoryRow(tr.dataset.cat)));
 }
 
-function drillCategory(category, txs) {
-  const filtered = txs.filter(t => t.category === category);
-  const sub = {};
-  filtered.forEach(t => {
-    const key = t.subcategory || 'General';
-    sub[key] = (sub[key] || 0) + (t.type === 'income' ? t.amount : Math.abs(t.amount));
-  });
-  const tbody = document.querySelector('#budgetTable tbody');
-  tbody.innerHTML = Object.entries(sub).map(([name, total]) => `<tr><td>${category} / ${name}</td><td>-</td><td>-</td><td>${formatCurrency(total)}</td><td>-</td></tr>`).join('');
+function toggleCategoryRow(category) {
+  if (expandedCategories.has(category)) {
+    expandedCategories.delete(category);
+  } else {
+    expandedCategories.add(category);
+  }
+  renderBudget();
 }
 
 function aggregateByCategory(txs, period) {
@@ -302,6 +290,16 @@ function aggregateByCategory(txs, period) {
     r.budget = (r.type === 'income' ? budgetDefaults.income || 0 : budgetDefaults.expense || 0) / periodFactor;
   });
   return Object.values(result);
+}
+
+function subcategoryBreakdown(txs, category) {
+  const totals = {};
+  txs.filter(t => t.category === category).forEach(t => {
+    const key = t.subcategory || 'General';
+    totals[key] = (totals[key] || { name: key, total: 0, type: t.type });
+    totals[key].total += t.type === 'income' ? t.amount : Math.abs(t.amount);
+  });
+  return Object.values(totals);
 }
 
 function renderScenarioPills() {
@@ -422,6 +420,19 @@ function renderTransactions() {
   tbody.innerHTML = state.transactions.map(t => `<tr><td>${t.date}</td><td>${t.vendor}</td><td>${t.category}</td><td>${t.subcategory || '-'}</td><td>${t.type}</td><td>${formatCurrency(t.amount)}</td><td>${state.scenarios.find(s => s.id === t.scenario)?.name || t.scenario}</td><td>${t.payment}</td></tr>`).join('');
 }
 
+function renderRecurring() {
+  const tbody = document.querySelector('#recurringTable tbody');
+  if (!tbody) return;
+  tbody.innerHTML = state.recurring.map(rec => {
+    const scenarioName = state.scenarios.find(s => s.id === rec.scenario)?.name || rec.scenario;
+    const range = `${rec.start || '-'} → ${rec.end || 'open'}`;
+    return `<tr><td>${rec.label}</td><td>${rec.category}${rec.subcategory ? ` / ${rec.subcategory}` : ''}</td><td>${rec.type}</td><td>${rec.cadence}</td><td>${(rec.need || 'required')}</td><td>${formatCurrency(rec.amount)}</td><td>${range}</td><td>${scenarioName}</td><td class="table-actions"><button class="ghost edit" data-id="${rec.id}">Edit</button><button class="ghost danger delete" data-id="${rec.id}">Delete</button></td></tr>`;
+  }).join('') || '<tr><td colspan="9">No recurring patterns yet.</td></tr>';
+
+  tbody.querySelectorAll('.edit').forEach(btn => btn.addEventListener('click', () => populateRecurringForm(btn.dataset.id)));
+  tbody.querySelectorAll('.delete').forEach(btn => btn.addEventListener('click', () => deleteRecurring(btn.dataset.id)));
+}
+
 function promptTransaction() {
   const scenarioId = currentScenario();
   const vendor = prompt('Vendor');
@@ -461,16 +472,59 @@ function parseCsvUpload() {
   persist();
   renderAll();
   document.getElementById('csvInput').value = '';
+  closeImportModal();
 }
 
 function saveRecurring(e) {
   e.preventDefault();
   const form = e.target;
   const data = Object.fromEntries(new FormData(form).entries());
-  state.recurring.push({ id: crypto.randomUUID(), label: data.label, category: data.category, subcategory: data.subcategory, amount: Number(data.amount) * (data.type === 'expense' ? -1 : 1), type: data.type, cadence: data.cadence, start: data.start, end: data.end || null, scenario: data.scenario });
+  const payload = { id: data.id || crypto.randomUUID(), label: data.label, category: data.category, subcategory: data.subcategory, amount: Number(data.amount) * (data.type === 'expense' ? -1 : 1), type: data.type, cadence: data.cadence, start: data.start, end: data.end || null, scenario: data.scenario, need: data.need || 'required' };
+  const existingIndex = state.recurring.findIndex(r => r.id === payload.id);
+  if (existingIndex >= 0) {
+    state.recurring[existingIndex] = payload;
+  } else {
+    state.recurring.push(payload);
+  }
   persist();
   form.reset();
+  form.querySelector('input[name="id"]').value = '';
   renderAll();
+}
+
+function populateRecurringForm(id) {
+  const rec = state.recurring.find(r => r.id === id);
+  if (!rec) return;
+  const form = document.getElementById('recurringForm');
+  form.label.value = rec.label;
+  form.category.value = rec.category;
+  form.subcategory.value = rec.subcategory || '';
+  form.amount.value = Math.abs(rec.amount);
+  form.type.value = rec.type;
+  form.cadence.value = rec.cadence;
+  form.need.value = rec.need || 'required';
+  form.start.value = rec.start || '';
+  form.end.value = rec.end || '';
+  form.scenario.value = rec.scenario;
+  form.id.value = rec.id;
+}
+
+function deleteRecurring(id) {
+  state.recurring = state.recurring.filter(r => r.id !== id);
+  persist();
+  renderAll();
+}
+
+function openImportModal() {
+  const modal = document.getElementById('importModal');
+  modal.classList.add('active');
+  modal.setAttribute('aria-hidden', 'false');
+}
+
+function closeImportModal() {
+  const modal = document.getElementById('importModal');
+  modal.classList.remove('active');
+  modal.setAttribute('aria-hidden', 'true');
 }
 
 function promptCard() {
