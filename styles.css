@@ -26,7 +26,12 @@ body {
   padding: 24px 32px 72px;
 }
 
-h1, h2, h3 { margin: 0; }
+h1, h2, h3 { margin: 0; font-weight: 400; }
+h1 { font-size: 28px; }
+h2 { font-size: 22px; }
+h3 { font-size: 18px; }
+
+strong, b { font-weight: 400; }
 
 .app-header {
   display: flex;
@@ -62,9 +67,9 @@ h1, h2, h3 { margin: 0; }
   box-shadow: var(--shadow);
 }
 
-.stat .label { color: var(--muted); font-size: 12px; }
-.stat .value { font-weight: 700; font-size: 20px; }
-.stat .note { color: var(--muted); font-size: 12px; }
+.stat .label { color: var(--muted); font-size: 12px; font-weight: 400; }
+.stat .value { font-weight: 400; font-size: 20px; }
+.stat .note { color: var(--muted); font-size: 12px; font-weight: 400; }
 
 .tab-nav {
   display: grid;
@@ -123,6 +128,7 @@ select, input, textarea, button {
   color: var(--text);
   padding: 8px 10px;
   font-size: 14px;
+  font-weight: 400;
 }
 
 button { cursor: pointer; }
@@ -130,6 +136,11 @@ button { cursor: pointer; }
 button.ghost {
   background: transparent;
   border-color: var(--accent-2);
+}
+
+button.ghost.danger {
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .table-actions { display: flex; gap: 6px; }
@@ -143,6 +154,7 @@ button.ghost {
   padding: 10px;
   text-align: left;
   border-bottom: 1px solid var(--border);
+  font-weight: 400;
 }
 
 .data-table tbody tr:hover {
@@ -182,6 +194,36 @@ button.ghost {
 .badge { padding: 3px 8px; border-radius: 8px; background: rgba(34,211,238,0.12); color: #a5f3fc; font-size: 12px; }
 
 .badge.danger { background: rgba(248,113,113,0.12); color: #fecaca; }
+
+.modal {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.6);
+  padding: 20px;
+  z-index: 50;
+}
+
+.modal.active { display: flex; }
+
+.modal-content {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  width: min(720px, 100%);
+  box-shadow: var(--shadow);
+}
+
+.modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+
+.spaced { margin-top: 16px; }
+
+.budget-child td:first-child { padding-left: 28px; }
+
+.responsive-table + .hint { margin-top: 6px; }
 
 @media (max-width: 720px) {
   body { padding: 18px 16px; }
