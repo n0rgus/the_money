@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Show me the Money</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <h1>Show me the Money</h1>
+      <p class="tagline">Interactive budget and financial management hub</p>
+    </div>
+    <div class="meta">
+      <label for="scenarioSelect">Scenario:</label>
+      <select id="scenarioSelect"></select>
+      <button id="addScenarioBtn" class="ghost">+ Scenario</button>
+    </div>
+  </header>
+
+  <section class="intro">
+    <p>Track cash flow, compare scenarios, and keep tabs on credit card timing with an all-in-one workspace. Load past transactions, build recurring plans, and drill into categories to find opportunities to save.</p>
+    <div class="stat-bar" id="statBar"></div>
+  </section>
+
+  <nav class="tab-nav">
+    <button class="tab-button active" data-tab="overview">Graphical overview</button>
+    <button class="tab-button" data-tab="budget">Budget sheet</button>
+    <button class="tab-button" data-tab="cash-graph">Cash Flow graph</button>
+    <button class="tab-button" data-tab="cash-table">Cash Flow table</button>
+    <button class="tab-button" data-tab="state">Current Financial State</button>
+    <button class="tab-button" data-tab="data">Imported data review</button>
+  </nav>
+
+  <main>
+    <section id="overview" class="tab-content active">
+      <div class="panel-grid">
+        <div class="panel">
+          <header>
+            <h2>Cash position</h2>
+            <select id="overviewRange">
+              <option value="30">30 days</option>
+              <option value="60">60 days</option>
+              <option value="90" selected>90 days</option>
+            </select>
+          </header>
+          <canvas id="overviewChart" height="120"></canvas>
+        </div>
+        <div class="panel">
+          <header>
+            <h2>Category hotspots</h2>
+            <select id="overviewPeriod">
+              <option value="month" selected>Monthly</option>
+              <option value="quarter">Quarterly</option>
+              <option value="year">Yearly</option>
+            </select>
+          </header>
+          <div id="hotspotList" class="simple-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="budget" class="tab-content">
+      <div class="panel">
+        <header>
+          <h2>Consolidated budget</h2>
+          <div class="control-row">
+            <label for="budgetPeriod">Period</label>
+            <select id="budgetPeriod">
+              <option value="month" selected>Month</option>
+              <option value="quarter">Quarter</option>
+              <option value="year">Year</option>
+            </select>
+          </div>
+        </header>
+        <table class="data-table" id="budgetTable">
+          <thead>
+            <tr><th>Category</th><th>Type</th><th>Budgeted</th><th>Actual</th><th>Variance</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <p class="hint">Click a category to drill down to sub-categories.</p>
+      </div>
+    </section>
+
+    <section id="cash-graph" class="tab-content">
+      <div class="panel">
+        <header class="stacked">
+          <div class="control-row">
+            <h2>Cash Flow projection</h2>
+            <div class="pill-group" id="scenarioPills"></div>
+          </div>
+          <div class="control-row wrap">
+            <label>Range</label>
+            <select id="cashRange">
+              <option value="30">30 days</option>
+              <option value="90" selected>90 days</option>
+              <option value="180">180 days</option>
+            </select>
+            <label><input type="checkbox" id="includeTrend"> Add trend lines</label>
+          </div>
+        </header>
+        <canvas id="cashChart" height="160"></canvas>
+      </div>
+    </section>
+
+    <section id="cash-table" class="tab-content">
+      <div class="panel">
+        <header>
+          <h2>Cash Flow table</h2>
+          <div class="control-row wrap">
+            <label for="tableRange">Range</label>
+            <select id="tableRange">
+              <option value="30">30 days</option>
+              <option value="90" selected>90 days</option>
+              <option value="180">180 days</option>
+            </select>
+            <label for="tableGrouping">Grouping</label>
+            <select id="tableGrouping">
+              <option value="weekly">Weekly</option>
+              <option value="biweekly">Bi-weekly</option>
+              <option value="monthly" selected>Monthly</option>
+            </select>
+          </div>
+        </header>
+        <div class="responsive-table">
+          <table class="data-table" id="cashTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="state" class="tab-content">
+      <div class="panel-grid">
+        <div class="panel">
+          <header>
+            <h2>Current financial state</h2>
+            <button class="ghost" id="refreshState">Refresh</button>
+          </header>
+          <div id="stateList" class="simple-list"></div>
+        </div>
+        <div class="panel">
+          <header>
+            <h2>Credit card outlook</h2>
+            <button class="ghost" id="addCard">+ Card</button>
+          </header>
+          <table class="data-table" id="cardTable">
+            <thead>
+              <tr><th>Card</th><th>Closing</th><th>Due</th><th>Predicted close</th><th>Confidence</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="data" class="tab-content">
+      <div class="panel-grid">
+        <div class="panel">
+          <header>
+            <h2>Transactions</h2>
+            <button class="ghost" id="addTransaction">+ Transaction</button>
+          </header>
+          <div class="responsive-table">
+            <table class="data-table" id="transactionTable">
+              <thead>
+                <tr><th>Date</th><th>Vendor</th><th>Category</th><th>Sub</th><th>Type</th><th>Amount</th><th>Scenario</th><th>Payment</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel">
+          <header>
+            <h2>Recurring & Import</h2>
+          </header>
+          <form id="recurringForm" class="stacked-form">
+            <div class="control-row">
+              <label>Label<input name="label" required></label>
+              <label>Category<input name="category" required></label>
+              <label>Sub-category<input name="subcategory"></label>
+            </div>
+            <div class="control-row">
+              <label>Amount<input type="number" step="0.01" name="amount" required></label>
+              <label>Type<select name="type"><option value="expense">Expense</option><option value="income">Income</option></select></label>
+              <label>Cadence<select name="cadence"><option value="monthly">Monthly</option><option value="weekly">Weekly</option><option value="yearly">Yearly</option></select></label>
+            </div>
+            <div class="control-row">
+              <label>Start<input type="date" name="start" required></label>
+              <label>End<input type="date" name="end"></label>
+              <label>Scenario<select name="scenario"></select></label>
+            </div>
+            <button type="submit">Save recurring</button>
+            <div class="control-row">
+              <label>Export JSON<input type="file" id="recurringExport" disabled></label>
+              <label>Import JSON<input type="file" id="recurringImport"></label>
+            </div>
+          </form>
+          <div class="upload">
+            <label for="csvInput">Import CSV / Excel (CSV)</label>
+            <textarea id="csvInput" placeholder="date,vendor,amount,type,category,subcategory,scenario,payment"></textarea>
+            <button id="parseCsv">Add imported rows</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <small>Prototype - Data stored locally in your browser.</small>
+  </footer>
+</body>
+</html>
